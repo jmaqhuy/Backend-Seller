@@ -1,0 +1,30 @@
+spring:
+  application:
+    name: etsy-caocao
+
+  datasource:
+    url: jdbc:mysql://${MYSQL_HOST}:3306/${MYSQL_DATABASE_NAME}
+    username: ${MYSQL_USERNAME}
+    password: ${MYSQL_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+
+server:
+  port: 8081
+
+openai:
+  api:
+    url: https://api.openai.com/v1/responses
+    model: gpt-4.1
+    token: ${OPENAI_API_KEY}
+
+file:
+  credential-dir: ${CREDENTIAL_DIR}
+  token-dir: ${TOKEN_DIR}
+
+google:
+  oauth:
+    redirect-uri: ${HOST}/google/oauth2/callback
