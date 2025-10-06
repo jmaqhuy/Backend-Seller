@@ -47,7 +47,7 @@ public class EtsyProductService {
         try {
             // 1. Tạo hoặc lấy Product Type
             ProductType productType = getOrCreateProductType(dto.getProductType());
-            log.info("Saving productType: {} with ID: {}", productType.getName(), dto.getProductType());
+            log.info("Saving productType: {} with ID: {}", productType.getName(), productType.getId());
 
             // 2. Tạo product mới
             EtsyProduct product = new EtsyProduct();
@@ -196,7 +196,7 @@ public class EtsyProductService {
 
         // Tìm tất cả tags hiện có trong 1 query duy nhất (tối ưu)
         List<Tag> existingTags = tagRepository.findByNameIn(uniqueTagNames);
-        log.info("Existing tags found: {}", existingTags);
+        log.info("Existing tags found: {}", existingTags.size());
 
         // Xác định tags nào cần tạo mới
         Set<String> existingTagNames = existingTags.stream()
@@ -351,5 +351,39 @@ public class EtsyProductService {
     @Transactional(readOnly = true)
     public List<EtsyProduct> getAllProducts() {
         return productRepository.findAll();
+    }
+
+    /**
+     * Lấy tất cả sản phẩm có status = PENDING
+     */
+    @Transactional(readOnly = true)
+    public List<EtsyProduct> getPendingProducts() {
+        List<EtsyProduct> pendingProducts = productRepository.findByGenerateStatus(
+                EtsyProduct.GenerateStatus.PENDING
+        );
+        log.info("Found {} pending products", pendingProducts.size());
+        return pendingProducts;
+    }
+
+    /**
+     * Lấy sản phẩm theo status
+     */
+    @Transactional(readOnly = true)
+    public List<EtsyProduct> getProductsByStatus(EtsyProduct.GenerateStatus status) {
+        List<EtsyProduct> products = productRepository.findByGenerateStatus(status);
+        log.info("Found {} products with status {}", products.size(), status);
+        return products;
+    }
+
+    /**
+     * Đếm số lượng sản phẩm pending
+     */
+    @Transactional(readOnly = true)
+    public long countPendingProducts() {
+        long count = productRepository.countByGenerateStatus(
+                EtsyProduct.GenerateStatus.PENDING
+        );
+        log.info("Total pending products: {}", count);
+        return count;
     }
 }

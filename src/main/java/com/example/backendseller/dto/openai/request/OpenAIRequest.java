@@ -17,7 +17,7 @@ public class OpenAIRequest {
     private List<InputMessage> input;
     private TextFormat text;
 
-    public static OpenAIRequest createProductRequest(String model, String systemMessage, String userMessage, String imageUrl, int numberOfResponse) {
+    public static OpenAIRequest createProductRequest(String model, String systemMessage, String userMessage, String imageUrl) {
         return OpenAIRequest.builder()
                 .model(model)
                 .input(List.of(
@@ -33,47 +33,70 @@ public class OpenAIRequest {
                                 .content(systemMessage)
                                 .build()
                 ))
-                .text(createProductTextFormat(numberOfResponse))
+                .text(createProductTextFormat())
                 .build();
     }
 
-    private static TextFormat createProductTextFormat(int numberOfResponse) {
+    private static TextFormat createProductTextFormat() {
         Map<String, Object> schema = Map.of(
                 "type", "object",
                 "properties", Map.of(
-                        "product_details", Map.of(
+                        "title", Map.of("type", "string"),
+                        "description", Map.of("type", "string"),
+                        "bullet_points", Map.of(
+                                "type", "array",
+                                "items", Map.of("type", "string")
+                        ),
+                        "shape", Map.of("type", "string"),
+                        "material", Map.of(
+                                "type", "array",
+                                "items", Map.of("type", "string")
+                        ),
+                        "tags", Map.of("type", "string"),
+                        "customizations", Map.of(
                                 "type", "array",
                                 "items", Map.of(
                                         "type", "object",
                                         "properties", Map.of(
-                                                "title", Map.of("type", "string"),
-                                                "description", Map.of("type", "string"),
-                                                "bullet_points", Map.of(
+                                                "type", Map.of("type", "string"),
+                                                "label", Map.of("type", "string"),
+                                                "options", Map.of(
                                                         "type", "array",
                                                         "items", Map.of("type", "string")
-                                                ),
-                                                "shape", Map.of("type", "string"),
-                                                "material", Map.of("type", "string"),
-                                                "tags", Map.of("type", "string")
+                                                )
                                         ),
-                                        "required", List.of("title", "description", "bullet_points", "shape", "material", "tags"),
+                                        // ✅ chỉ bắt buộc "type" và "label", "options" là optional
+                                        "anyOf", List.of(
+                                                // Variant 1: Không có options (optional)
+                                                Map.of(
+                                                        "required", List.of("type", "label"),
+                                                        "additionalProperties", false
+                                                ),
+                                                // Variant 2: Có options
+                                                Map.of(
+                                                        "required", List.of("type", "label", "options"),
+                                                        "additionalProperties", false
+                                                )
+                                        ),
                                         "additionalProperties", false
-                                ),
-                                "minItems", numberOfResponse,
-                                "maxItems", numberOfResponse
+                                )
                         )
                 ),
-                "required", List.of("product_details"),
+                "required", List.of(
+                        "title", "description", "bullet_points",
+                        "shape", "material", "tags", "customizations"
+                ),
                 "additionalProperties", false
         );
 
         return TextFormat.builder()
                 .format(Format.builder()
                         .type("json_schema")
-                        .name("product_detail")
+                        .name("product_detail_single")
                         .schema(schema)
                         .strict(true)
                         .build())
                 .build();
     }
+
 }

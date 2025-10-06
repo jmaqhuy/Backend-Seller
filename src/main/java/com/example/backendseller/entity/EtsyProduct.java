@@ -49,13 +49,13 @@ public class EtsyProduct {
     @JoinColumn(name = "product_type_id", referencedColumnName = "id")
     private ProductType productType;
 
-    @OneToMany(mappedBy = "etsyProduct", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @OneToMany(mappedBy = "etsyProduct", cascade = CascadeType.ALL, fetch = FetchType.EAGER)
     private List<EtsyImage> etsyImages;
 
-    @OneToMany(mappedBy = "etsyProduct", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @OneToMany(mappedBy = "etsyProduct", cascade = CascadeType.ALL, fetch = FetchType.EAGER)
     private List<EtsyProductPersonalization> personalizations;
 
-    @OneToMany(mappedBy = "etsyProduct", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @OneToMany(mappedBy = "etsyProduct", cascade = CascadeType.ALL, fetch = FetchType.EAGER)
     private List<EtsyVariation> variations;
 
     public enum GenerateStatus {
@@ -63,5 +63,10 @@ public class EtsyProduct {
         PROCESSING,
         COMPLETED,
         FAILED
+    }
+
+    @Override
+    public String toString() {
+        return "EtsyProduct{id=" + id + ", title='" + title + "', price=" + price + ", material='" + material + "', generateStatus=" + generateStatus + ", acc=" + acc + "}";
     }
 }

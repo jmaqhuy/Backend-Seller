@@ -12,6 +12,14 @@ spring:
     hibernate:
       ddl-auto: update
 
+  task:
+    execution:
+      pool:
+        core-size: 5
+        max-size: 10
+        queue-capacity: 100
+      thread-name-prefix: async-
+
 server:
   port: 8081
 
