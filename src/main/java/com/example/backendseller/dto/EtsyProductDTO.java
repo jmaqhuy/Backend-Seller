@@ -1,12 +1,10 @@
 package com.example.backendseller.dto;
 
-import com.example.backendseller.entity.EtsyProduct;
+import com.example.backendseller.entity.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-
-import java.util.List;
 
 @Data
 @NoArgsConstructor
@@ -15,24 +13,17 @@ import java.util.List;
 public class EtsyProductDTO {
     private Long id;
     private String title;
-    private String description;
     private Double price;
-    private List<String> images;
     private String material;
-    private List<EtsyVariationDTO> variation;
-    private List<String> personalization;
-    private List<String> tags;
-    private String productType;
+    private String generateStatus;
+    private String tags;
     private Integer acc;
+    private ProductType productType;
+    private String etsyImage;
 
-    public static EtsyProductDTO fromEntity(EtsyProduct etsyProduct) {
+    public static EtsyProductDTO fromEntity(EtsyProduct product) {
         return EtsyProductDTO.builder()
-                .id(etsyProduct.getId())
-                .title(etsyProduct.getTitle())
-                .price(etsyProduct.getPrice())
-                .material(etsyProduct.getMaterial())
-                .productType(etsyProduct.getProductType().getName())
-                .acc(etsyProduct.getAcc())
+                .id(product.getId())
                 .build();
     }
 }

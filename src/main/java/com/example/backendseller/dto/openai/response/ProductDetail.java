@@ -1,10 +1,8 @@
 package com.example.backendseller.dto.openai.response;
 
+import com.example.backendseller.dto.*;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import lombok.*;
 
 import java.util.List;
 
@@ -12,6 +10,7 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
+@ToString
 public class ProductDetail {
     private String title;
     private String description;
@@ -20,5 +19,15 @@ public class ProductDetail {
     private String shape;
     private List<String> material;
     private String tags;
-    private List<Customization> customizations;
+    private List<String> target_audience;
+    private List<String> occasion;
+    private ItemDimensionsDTO item_dimensions;
+    @JsonProperty("data_customizations")
+    private List<DataCustomizationDTO> dataCustomizations;
+    @JsonProperty("dropdown_customizations")
+    private List<DropdownCustomizationDTO> dropdownCustomizations;
+    @JsonProperty("number_customizations")
+    private List<NumberCustomizationDTO> numberCustomizations;
+    @JsonProperty("image_customizations")
+    private List<ImageCustomizationDTO> imageCustomizations;
 }

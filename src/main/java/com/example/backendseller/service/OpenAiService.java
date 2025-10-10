@@ -3,10 +3,7 @@ package com.example.backendseller.service;
 import com.example.backendseller.dto.openai.request.OpenAIRequest;
 import com.example.backendseller.dto.openai.response.OpenAIResponse;
 import com.example.backendseller.dto.openai.response.ProductDetail;
-import com.example.backendseller.entity.EtsyProduct;
-import com.example.backendseller.entity.EtsyProductPersonalization;
-import com.example.backendseller.entity.EtsyVariation;
-import com.example.backendseller.entity.Tag;
+import com.example.backendseller.entity.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -210,14 +207,70 @@ public class OpenAiService {
             );
 
             String jsonContent = getString(response);
-            log.debug("Received JSON content from OpenAI");
+            assert response.getBody() != null;
+            log.info("Token usage: {}", response.getBody().getUsage().getTotalTokens());
+            ProductDetail productDetail = objectMapper.readValue(jsonContent, ProductDetail.class);
 
-            return objectMapper.readValue(jsonContent, ProductDetail.class);
+            // Validate customizations
+//            validateCustomizations(productDetail.getCustomizations());
+
+            return productDetail;
         } catch (Exception e) {
             log.error("Error calling OpenAI API", e);
             throw new RuntimeException("Failed to call OpenAI API", e);
         }
     }
+
+//    private void validateCustomizations(List<BaseCustomization> customizations) {
+//        if (customizations == null) return;
+//
+//        for (BaseCustomization custom : customizations) {
+//            if (custom instanceof DataCustomization) {
+//                DataCustomization data = (DataCustomization) custom;
+//                if (data.getMinCharacters() == null || data.getMaxCharacters() == null || data.getLinesAllowed() == null) {
+//                    throw new ValidationException("Data customization missing required fields");
+//                }
+//                if (data.getMinCharacters() < 1 || data.getMaxCharacters() > 500) {
+//                    throw new ValidationException("Invalid character limits: " + data.getLabel());
+//                }
+//                if (data.getLinesAllowed() < 1 || data.getLinesAllowed() > 10) {
+//                    throw new ValidationException("Lines allowed must be 1-10: " + data.getLabel());
+//                }
+//
+//            } else if (custom instanceof DropdownCustomization) {
+//                DropdownCustomization dropdown = (DropdownCustomization) custom;
+//                if (dropdown.getOptions() == null || dropdown.getOptions().isEmpty()) {
+//                    throw new ValidationException("Dropdown must have options: " + dropdown.getLabel());
+//                }
+//                for (DropdownCustomization.DropdownOption option : dropdown.getOptions()) {
+//                    if (option.getName() == null || option.getName().length() > 40) {
+//                        throw new ValidationException("Invalid option name: " + option.getName());
+//                    }
+//                    if (option.getPriceDifference() == null) {
+//                        option.setPriceDifference(0.0); // Set default
+//                    }
+//                }
+//
+//            } else if (custom instanceof NumberCustomization) {
+//                NumberCustomization number = (NumberCustomization) custom;
+//                if (number.getMinValue() == null || number.getMaxValue() == null) {
+//                    throw new ValidationException("Number customization missing min/max: " + number.getLabel());
+//                }
+//                if (number.getMinValue() >= number.getMaxValue()) {
+//                    throw new ValidationException("minValue must be less than maxValue: " + number.getLabel());
+//                }
+//
+//            } else if (custom instanceof ImageCustomization) {
+//                ImageCustomization image = (ImageCustomization) custom;
+//                if (image.getMaxFileSize() == null || image.getAllowedFormats() == null) {
+//                    throw new ValidationException("Image customization missing required fields: " + image.getLabel());
+//                }
+//                if (image.getMaxFileSize() < 1 || image.getMaxFileSize() > 10) {
+//                    throw new ValidationException("Max file size must be 1-10 MB: " + image.getLabel());
+//                }
+//            }
+//        }
+//    }
 
     private static String getString(ResponseEntity<OpenAIResponse> response) {
         if (!response.getStatusCode().is2xxSuccessful()) {
@@ -291,11 +344,26 @@ public class OpenAiService {
             personalizeStr = "Error in personalizations";
         }
 
+        // Tạo cấu trúc dữ liệu variations
         String variationsStr = "No";
         try {
             log.info("About to access product.getVariations()");
-            if (product.getVariations() != null) {
-                variationsStr = product.getVariations().stream().map(EtsyVariation::getLabel).collect(Collectors.joining(","));
+            if (product.getVariations() != null && !product.getVariations().isEmpty()) {
+                // Format: Label1: option1, option2, option3 | Label2: optionA, optionB
+                variationsStr = product.getVariations().stream()
+                        .map(variation -> {
+                            String label = variation.getLabel();
+                            String options = "";
+
+                            if (variation.getVariationOptions() != null && !variation.getVariationOptions().isEmpty()) {
+                                options = variation.getVariationOptions().stream()
+                                        .map(EtsyVariationOption::getLabel)
+                                        .collect(Collectors.joining(", "));
+                            }
+
+                            return options.isEmpty() ? label : (label + ": " + options);
+                        })
+                        .collect(Collectors.joining(" | "));
             }
             log.info("Variations accessed: {}", variationsStr);
         } catch (Exception e) {
@@ -305,25 +373,34 @@ public class OpenAiService {
 
         // Tiếp tục build prompt với fallback values
         String prompt = String.format("""
-            Help me to write optimized a product listing for my Amazon store based on the following details and customization (if need) based on personalize (if exist) and variations(if exist) :
-            - Product name: "%s"
-            - Tags: %s
-            - Material: %s
-            - Personalize: %s
-            - Variations: %s
-            Follow these requirements:
-            - ensure the total length of tags does not exceed %d bytes.
-            - If the draft title contains a year, replace it with the current year: %d. If not, do not add the current year.
-            - Always treat as physical product, even if draft indicates digital. Do not mention digital in any part of the listing.
-            - If the Generic keyword contains digital-product-related terms (e.g., svg, file, laser file), generate a new list of relevant physical product keywords based on the current tags; otherwise, change the order of each. Each generic keyword separate by ';'. Generic keywords should be less than 500 bytes long, if current is shorter, please add more.
-            """,
+                Create an optimized Amazon product listing for a PHYSICAL PRODUCT with these details:
+                
+                Product Name: "%s"
+                Product Description: "%s"
+                Current Tags: %s
+                Material Options: %s
+                Personalization Available: %s
+                Product Variations: %s
+                
+                CRITICAL REQUIREMENTS:
+                1. Replace any year in title with %d (current year). Don't add year if not present.
+                2. ALWAYS treat as physical product - remove ALL digital/downloadable references
+                3. Tags must be %d-%d bytes, semicolon-separated
+                4. If tags contain digital terms (svg, file, pdf, download, digital, printable, instant), REPLACE with physical product keywords based on the product category
+                5. Create customization options from personalization/variations data - use appropriate type (Option Dropdown, Data, Number, Image)
+                
+                Generate professional, conversion-optimized content following Amazon's policies.
+                """,
                 escapeJson(product.getTitle()),
+                escapeJson(product.getDescription()),
                 escapeJson(tagsStr),
                 escapeJson(materialStr),
                 escapeJson(personalizeStr),
                 escapeJson(variationsStr),
-                MAX_TAGS_BYTES,
-                Year.now().getValue());
+                Year.now().getValue(),
+                400, // min tags bytes
+                500 // max tags bytes
+        );
 
         log.info("User prompt built successfully: length = {}", prompt.length());
         return prompt;
@@ -341,171 +418,265 @@ public class OpenAiService {
     private String getSystemPrompt() {
         return """
                 {
-                  "role": "You are an expert e-commerce content creator specializing in physical products for Amazon listings.",
-                  "language": "English",
-                  "amazon_policies": {
-                    "general_requirements": {
-                      "product_type": "physical products only",
-                      "content_must_be": [
-                        "clear and persuasive",
-                        "keyword-rich",
-                        "tailored to target audience",
-                        "focused on discoverability and conversion",
-                        "100%% Amazon compliant"
-                      ],
-                      "prohibited_elements": [
-                        "digital files",
-                        "prohibited terms",
-                        "brand names",
-                        "ordering instructions",
-                        "external links",
-                        "coupon codes"
+                  "role": "Expert Amazon listing optimizer for physical products",
+                  "expertise": [
+                    "SEO-optimized content creation",
+                    "Amazon policy compliance",
+                    "Conversion-focused copywriting",
+                    "Product customization setup"
+                  ],
+                  "output_requirements": {
+                    "title": {
+                      "max_length": 200,
+                      "optimal_length": 80,
+                      "rules": [
+                        "Capitalize first letter of each word (except: in, on, at, the, a, an, and, or, for, with)",
+                        "Use numerals (2 not two)",
+                        "Strict: No repetition of any word allowed (case-insensitive)",
+                        "No special chars except: - / , & .",
+                        "No promotional terms: free shipping, best seller, hot item",
+                        "No ALL CAPS or excessive keywords"
+                      ]
+                    },
+                    "description": {
+                      "style": "persuasive, benefit-focused",
+                      "length": "comprehensive but concise",
+                      "focus": "highlight physical product features, quality, uses"
+                    },
+                    "bullet_points": {
+                      "count": 5,
+                      "length": "200-255 characters each",
+                      "format": "Header: Description with key details",
+                      "rules": [
+                        "Start with capital letter",
+                        "Each point must be unique",
+                        "Use semicolons to separate phrases within bullet",
+                        "No end punctuation",
+                        "No emojis or special symbols",
+                        "Spell out numbers 1-9 (except measurements)"
                       ]
                     },
                     "tags": {
-                      "another_term": [
-                        "generic_keyword",
-                        "search terms",
-                        "keywords"
-                      ],
-                      "character_limit": {
-                        "minimum": 300,
-                        "maximum": 500,
-                        "reason_for_limit": "Amazon allows up to 500 bytes, but more can improve discoverability"
-                      },
-                      "formatting_rules": {
-                        "separator": ";"
-                      }
+                      "length": "400-500 bytes",
+                      "format": "keyword1;keyword2;keyword3",
+                      "strategy": "If input contains digital terms, generate NEW physical product keywords based on category. Otherwise reorder existing keywords for freshness.",
+                      "focus": "high-volume search terms, product category, use cases, occasions"
                     },
-                    "product_title": {
-                      "character_limit": {
-                        "maximum": 200,
-                        "recommended": 80,
-                        "reason_for_recommendation": "mobile screens truncate long titles"
+                    "material": {
+                      "select": "1-2 most relevant from provided options",
+                      "valid_options": ["wood", "acrylic", "ceramic", "glass"]
+                    },
+                    "shape": {
+                      "derive": "from product name/variations if mentioned, otherwise leave as general descriptor",
+                      "example_options": [
+                        "Ball", "Bell", "Butterfly", "Diamond", "Flower", "Heart", "Hexagonal",
+                        "Leaf", "Moon", "Mushroom", "Oblong", "Octagonal", "Oval",
+                        "Rectangular", "Round", "Semicircular", "Skull",
+                        "Snowflake", "Square", "Star", "Tree", "Triangular"
+                      ]
+                    },
+                    "target_audience": {
+                      "count": "from 1 to 5",
+                      "definition": "Specify the target audience that the product is intended for",
+                      "example": ["Adult", "Aunt", "Baby", "Boss", "Boy", "Brother", "Children", "Co Worker", "Coach", "Daughter", "Expecting", "Father", "Friend", "Girl", "Godparent", "Granddaughter", "Grandfather", "Grandmother", "Grandparents", "Grandson", "Group", "Husband", "Men", "Mother", "Nephew", "Niece", "Parents", "Sister", "Son", "Student", "Teacher", "Teens", "Toddler", "Uncle", "Wife", "Women"]
+                    },
+                    "occasion": {
+                      "count": "from 1 to 5",
+                      "definition": "Provide the holiday or major life event that the product is designed to commemorate or celebrate.",
+                      "example": ["Anniversary", "Baby Shower", "Babys First Christmas", "Bachelor Party", "Bachelorette Party", "Baptism", "Birthday", "Bridal Shower", "Christmas", "Cinco de Mayo", "Diwali", "Earth Day", "Easter", "Eid al-Fitr", "Engagement", "Farewell", "Father's Day", "First Married Christmas", "Friendship Day", "Graduation", "Grandparents Day", "Halloween", "Hanukkah", "Homecoming", "Housewarming", "Independence Day", "Kwanzaa", "Labor Day", "Memorial Day", "Mother's Day", "New Year", "Prom", "Retirement", "Saint Nicholas Day", "St. Patrick's Day", "Thanksgiving", "Valentine's Day", "Wedding"]
+                    },
+                    "item_dimensions": {
+                      "item_depth_front_to_back": "Provide the measurement of the item from front to back in an assembled state.",
+                      "item_height_floor_to_top": "Provide the measurement of the item from the floor to the top in an assembled state.",
+                      "item_width_side_to_side": "Provide the measurement from side to side of the front of the item in an assembled state.",
+                      "unit": "Always use: Inches"
+                    },
+                    "data_customizations": {
+                      "type": "array of Data customization objects",
+                      "minItems": 0,
+                      "maxItems": 15,
+                      "description": "Text input fields for customer personalization",
+                      "field_structure": {
+                        "type": {"value": "Data", "required": true},
+                        "label": {"description": "Clear, simple label (Name, Message, Text, etc.)", "required": true, "max_length": 100},
+                        "instructions": {"description": "Helper text for customer (e.g., 'Enter your name as you want it engraved')", "required": false, "max_length": 200},
+                        "sample_text": {"description": "Example text to guide customer (e.g., 'John Smith')", "required": false, "max_length": 30},
+                        "min_characters": {"description": "Minimum characters allowed", "required": true, "default": 1, "minimum": 1},
+                        "max_characters": {"description": "Maximum characters allowed", "required": true, "default": 100, "maximum": 1000},
+                        "lines_allowed": {"description": "Number of text lines allowed", "required": true, "default": 1, "minimum": 1, "maximum": 10}
                       },
-                      "prohibited_content": {
-                        "special_word": [
-                          "gift"
-                        ],
-                        "promotional_phrases": [
-                          "free shipping",
-                          "100%% quality guaranteed"
-                        ],
-                        "special_characters": [
-                          "!", "$", "?", "_", "{", "}", "^", "¬", "¦"
-                        ],
-                        "subjective_commentary": [
-                          "Hot Item",
-                          "Best seller"
-                        ],
-                        "formatting": [
-                          "ALL CAPS",
-                          "redundant information",
-                          "unnecessary synonyms",
-                          "excessive keywords"
-                        ]
-                      },
-                      "word_repetition_rule": {
-                        "maximum_same_word": 2,
-                        "case_sensitivity": "case-insensitive",
-                        "duplicated_words": "forbidden"
-                      },
-                      "formatting_rules": {
-                        "capitalization": {
-                          "rule": "capitalize first letter of each word",
-                          "exceptions": {
-                            "prepositions": [
-                              "in", "on", "over", "with"
-                            ],
-                            "conjunctions": [
-                              "and", "or", "for"
-                            ],
-                            "articles": [
-                              "the", "a", "an"
-                            ]
-                          }
+                      "examples": [
+                        {
+                          "type": "Data",
+                          "label": "Name",
+                          "instructions": "Enter name for personalization",
+                          "sample_text": "John Smith",
+                          "min_characters": 1,
+                          "max_characters": 50,
+                          "lines_allowed": 1
                         },
-                        "numbers": "use numerals (2 instead of two)",
-                        "character_set": "standard letters and numbers only",
-                        "allowed_punctuation": [
-                          "-", "/", ",", "&", "."
+                        {
+                          "type": "Data",
+                          "label": "Message",
+                          "instructions": "Your custom message",
+                          "sample_text": "Happy Birthday!",
+                          "min_characters": 5,
+                          "max_characters": 200,
+                          "lines_allowed": 3
+                        }
+                      ]
+                    },
+                    "dropdown_customizations": {
+                      "type": "array of Option Dropdown customization objects",
+                      "minItems": 0,
+                      "maxItems": 15,
+                      "description": "Dropdown menus with predefined choices",
+                      "field_structure": {
+                        "type": {"value": "Option Dropdown", "required": true},
+                        "label": {"description": "Category name (Color, Size, Material, etc.)", "required": true, "max_length": 100},
+                        "instructions": {"description": "Helper text for selection", "required": false, "max_length": 200},
+                        "options": {"description": "Array of option objects with name and price_difference", "required": true, "minItems": 2, "maxItems": 20}
+                      },
+                      "option_object": {
+                        "name": {"description": "Option display name", "max_length": 40},
+                        "price_difference": {"description": "Price difference compared to base option (default: 0, can be negative)", "type": "number"}
+                      },
+                      "examples": [
+                        {
+                          "type": "Option Dropdown",
+                          "label": "Color",
+                          "instructions": "Select your preferred color",
+                          "options": [
+                            {"name": "Red", "price_difference": 0},
+                            {"name": "Blue", "price_difference": 0},
+                            {"name": "Gold (Premium)", "price_difference": 5.00}
+                          ]
+                        },
+                        {
+                          "type": "Option Dropdown",
+                          "label": "Size",
+                          "options": [
+                            {"name": "Small (3 inch)", "price_difference": 0},
+                            {"name": "Medium (5 inch)", "price_difference": 3.00},
+                            {"name": "Large (8 inch)", "price_difference": 7.50}
+                          ]
+                        }
+                      ]
+                    },
+                    "number_customizations": {
+                      "type": "array of Number customization objects",
+                      "minItems": 0,
+                      "maxItems": 15,
+                      "description": "Numeric input fields",
+                      "field_structure": {
+                        "type": {"value": "Number", "required": true},
+                        "label": {"description": "What number represents (Quantity, Year, Age, etc.)", "required": true, "max_length": 100},
+                        "instructions": {"description": "Helper text", "required": false, "max_length": 200},
+                        "min_value": {"description": "Minimum allowed value", "required": true, "type": "integer"},
+                        "max_value": {"description": "Maximum allowed value", "required": true, "type": "integer"},
+                        "placeholder": {"description": "Pre-filled value or example", "required": false, "type": "integer"}
+                      },
+                      "examples": [
+                        {
+                          "type": "Number",
+                          "label": "Year",
+                          "instructions": "Enter a year (e.g., 2025)",
+                          "min_value": 1900,
+                          "max_value": 2100,
+                          "placeholder": 2025
+                        },
+                        {
+                          "type": "Number",
+                          "label": "Quantity",
+                          "instructions": "How many items do you need?",
+                          "min_value": 1,
+                          "max_value": 100
+                        }
+                      ]
+                    },
+                    "image_customizations": {
+                      "type": "array of Image customization objects",
+                      "minItems": 0,
+                      "maxItems": 15,
+                      "description": "Image upload fields where customer's photo/logo will be placed on the product",
+                      "preview_context": {
+                        "size": "400x400 pixels (width x height)",
+                        "coordinate_system": "Top-left corner is (0, 0), bottom-right is (400, 400)",
+                        "origin": "Top-left corner"
+                      },
+                      "field_structure": {
+                        "type": {"value": "Image", "required": true},
+                        "label": {"description": "What to upload (Logo, Photo, Design, Face, Pet Photo, etc.)", "required": true, "max_length": 100},
+                        "instructions": {"description": "Upload guidelines", "required": false, "max_length": 200},
+                        "x": {"description": "X coordinate (0-400) from top-left where uploaded image will be placed", "required": true, "type": "integer", "minimum": 0, "maximum": 400},
+                        "y": {"description": "Y coordinate (0-400) from top-left where uploaded image will be placed", "required": true, "type": "integer", "minimum": 0, "maximum": 400},
+                        "width": {"description": "Width in pixels (10-400) of the image area", "required": true, "type": "integer", "minimum": 10, "maximum": 400},
+                        "height": {"description": "Height in pixels (10-400) of the image area", "required": true, "type": "integer", "minimum": 10, "maximum": 400}
+                      },
+                      "examples": [
+                        {
+                          "type": "Image",
+                          "label": "Face Photo",
+                          "instructions": "Upload a clear face photo (will be placed in ornament)",
+                          "x": 100,
+                          "y": 100,
+                          "width": 200,
+                          "height": 200
+                        },
+                        {
+                          "type": "Image",
+                          "label": "Logo",
+                          "instructions": "Upload your company logo (transparent background preferred)",
+                          "x": 50,
+                          "y": 50,
+                          "width": 300,
+                          "height": 300
+                        }
+                      ]
+                    },
+                    "customization_strategy": {
+                      "from_variations": {
+                        "rule": "Convert each variation to 'Option Dropdown' type",
+                        "format": "Label: option1, option2 | Label2: optionA, optionB",
+                        "conversion": [
+                          "Parse variation label as customization label",
+                          "Parse options and create option objects with price_difference: 0",
+                          "Add instructions if helpful for customer"
                         ]
+                      },
+                      "from_personalization": {
+                        "rule": "Analyze personalization text to extract custom fields",
+                        "text_inputs": "Convert to 'Data' type (names, messages, dates as text)",
+                        "numeric_inputs": "Convert to 'Number' type (years, quantities, ages)",
+                        "image_uploads": "Convert to 'Image' type if mentions 'logo', 'photo', 'image'"
+                      },
+                      "smart_defaults": {
+                        "Data": {
+                          "min_characters": 1,
+                          "max_characters": 100,
+                          "lines_allowed": 1
+                        },
+                        "Number": {
+                          "year_range": {"min_value": 1900, "max_value": 2100},
+                          "quantity_range": {"min_value": 1, "max_value": 100},
+                          "age_range": {"min_value": 1, "max_value": 120}
+                        }
                       }
                     },
-                    "bullet_points": {
-                      "character_limits": {
-                        "minimum": 10,
-                        "maximum": 255
-                      },
-                      "prohibited_content": {
-                        "special_characters": [
-                          "™", "®", "€", "…", "†", "‡", "¢", "£", "¥", "©", "±", "~"
-                        ],
-                        "emojis": [
-                          "☺", "☹", "✅", "❌"
-                        ],
-                        "identifiers": [
-                          "ASIN number",
-                          "not applicable",
-                          "NA",
-                          "n/a",
-                          "N/A",
-                          "TBD",
-                          "COPY PENDING"
-                        ],
-                        "prohibited_phrases": [
-                          "eco-friendly",
-                          "environmentally friendly",
-                          "anti-microbial",
-                          "anti-bacterial",
-                          "Made from Bamboo",
-                          "Made from Soy"
-                        ],
-                        "guarantee_information": [
-                          "Full refund",
-                          "If not satisfied, send it back",
-                          "Unconditional guarantee"
-                        ],
-                        "contact_information": [
-                          "company information",
-                          "website links",
-                          "external hyperlinks"
-                        ]
-                      },
-                      "formatting_requirements": {
-                        "structure": "add header to bullet point and use ':' as separator",
-                        "capitalization": "begin with capital letter",
-                        "format": "sentence fragment (no end punctuation)",
-                        "phrase_separation": "use semicolons to separate phrases within single bullet point",
-                        "number_format": "write numbers one to nine in full, excluding names, model numbers, and measurements",
-                        "uniqueness": "each bullet point must mention unique product information"
-                      }
-                    }
-                  },
-                  "customization": {
-                    "accept_type": [
-                      "Option Dropdown",
-                      "Data",
-                      "Number",
-                      "Image"
-                    ],
-                    "label": "Simple word like name, shape, color, material, number, year, length, weight, date...",
-                    "options": "provide when accept_type is Option Dropdown",
-                    "example": [
-                      {
-                        "type": "Option Dropdown",
-                        "label": "Shape",
-                        "options": [
-                          "Circle",
-                          "Heart"
-                        ]
-                      },
-                      {
-                        "type": "Data",
-                        "label": "Name"
-                      }
+                    "exclude": [
+                      "gift box", "preview", "paint color"
                     ]
-                  }
+                  },
+                  "prohibited": [
+                    "Digital/downloadable references",
+                    "Brand names in title",
+                    "Promotional language",
+                    "External links",
+                    "Guarantees in bullets",
+                    "Special symbols: ™®©€…†‡£¥",
+                    "Terms: eco-friendly, anti-bacterial, N/A, TBD",
+                    "sale x%, discount, ..."
+                  ]
                 }
                 """;
     }

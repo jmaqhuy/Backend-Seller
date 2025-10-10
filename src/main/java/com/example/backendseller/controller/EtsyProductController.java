@@ -1,16 +1,18 @@
 package com.example.backendseller.controller;
 
 import com.example.backendseller.dto.CustomResponse;
-import com.example.backendseller.dto.EtsyProductDTO;
+import com.example.backendseller.dto.CreateEtsyProductRequest;
 import com.example.backendseller.entity.EtsyProduct;
 import com.example.backendseller.service.EtsyProductService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
+@Slf4j
 @RestController
 @RequestMapping("/etsy/products")
 @RequiredArgsConstructor
@@ -23,11 +25,12 @@ public class EtsyProductController {
      * POST /api/products
      */
     @PostMapping
-    public ResponseEntity<CustomResponse> createProduct(@RequestBody EtsyProductDTO dto) {
+    public ResponseEntity<CustomResponse> createProduct(@RequestBody CreateEtsyProductRequest dto) {
         try {
+            log.info("Creating product {}", dto);
             EtsyProduct savedProduct = productService.saveProduct(dto);
-            return ResponseEntity.status(HttpStatus.CREATED).body(CustomResponse.<EtsyProductDTO>builder()
-                            .data(EtsyProductDTO.fromEntity(savedProduct))
+            return ResponseEntity.status(HttpStatus.CREATED).body(CustomResponse.<CreateEtsyProductRequest>builder()
+                            .data(CreateEtsyProductRequest.fromEntity(savedProduct))
                             .message("Saved product successfully with id " + savedProduct.getId())
                     .build());
         } catch (Exception e) {

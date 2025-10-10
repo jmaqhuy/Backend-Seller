@@ -5,6 +5,7 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -27,6 +28,9 @@ public class EtsyProduct {
     @Column(name = "material", length = 255)
     private String material;
 
+    @Column(name = "description", length = 2000)
+    private String description;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "generate_status")
     private GenerateStatus generateStatus;
@@ -42,9 +46,6 @@ public class EtsyProduct {
     @Column(name = "acc")
     private Integer acc;
 
-    @Column(name = "product_type_id", insertable = false, updatable = false)
-    private Integer productTypeId;
-
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "product_type_id", referencedColumnName = "id")
     private ProductType productType;
@@ -57,6 +58,26 @@ public class EtsyProduct {
 
     @OneToMany(mappedBy = "etsyProduct", cascade = CascadeType.ALL, fetch = FetchType.EAGER)
     private List<EtsyVariation> variations;
+
+    @OneToOne(mappedBy = "etsyProduct", cascade = CascadeType.ALL, fetch = FetchType.EAGER)
+    private AmazonProduct amazonProduct;
+
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private LocalDateTime createdAt;
+
+    @Column(name = "updated_at", nullable = false)
+    private LocalDateTime updatedAt;
+
+    @PrePersist
+    protected void onCreate() {
+        createdAt = LocalDateTime.now();
+        updatedAt = LocalDateTime.now();
+    }
+
+    @PreUpdate
+    protected void onUpdate() {
+        updatedAt = LocalDateTime.now();
+    }
 
     public enum GenerateStatus {
         PENDING,

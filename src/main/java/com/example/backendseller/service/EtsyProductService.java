@@ -1,6 +1,6 @@
 package com.example.backendseller.service;
 
-import com.example.backendseller.dto.EtsyProductDTO;
+import com.example.backendseller.dto.CreateEtsyProductRequest;
 import com.example.backendseller.dto.EtsyVariationDTO;
 import com.example.backendseller.entity.*;
 import com.example.backendseller.repository.*;
@@ -13,8 +13,6 @@ import org.springframework.util.StringUtils;
 import java.util.*;
 import java.util.stream.Collectors;
 
-
-import java.util.*;
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -32,7 +30,7 @@ public class EtsyProductService {
      * - Hỗ trợ manual ID từ Etsy API
      */
     @Transactional
-    public EtsyProduct saveProduct(EtsyProductDTO dto) {
+    public EtsyProduct saveProduct(CreateEtsyProductRequest dto) {
         log.info("Saving product: {} with ID: {}", dto.getTitle(), dto.getId());
 
         if (dto.getId() == null) {
@@ -55,6 +53,7 @@ public class EtsyProductService {
             // Set ID từ DTO (manual assignment)
             product.setId(dto.getId());
             product.setTitle(dto.getTitle());
+            product.setDescription(dto.getDescription());
             product.setPrice(dto.getPrice());
             product.setMaterial(dto.getMaterial());
             product.setAcc(dto.getAcc());
@@ -62,6 +61,8 @@ public class EtsyProductService {
             product.setGenerateStatus(EtsyProduct.GenerateStatus.PENDING);
 
             // 3. Xử lý Tags (tối ưu với batch query)
+//            List<String> tagsFromDMM = getTagsFromDMM(dto.getId(), dto.getUrl(), dto.getShop().getName());
+//            List<Tag> tags = getOrCreateTags(tagsFromDMM);
             List<Tag> tags = getOrCreateTags(dto.getTags());
             product.setTags(tags);
 
@@ -96,67 +97,6 @@ public class EtsyProductService {
     }
 
     /**
-     * Cập nhật sản phẩm đã tồn tại
-     */
-    private EtsyProduct updateExistingProduct(EtsyProductDTO dto) {
-        EtsyProduct product = productRepository.findById(dto.getId())
-                .orElseThrow(() -> new RuntimeException("Product not found: " + dto.getId()));
-
-        // Cập nhật Product Type nếu thay đổi
-        if (dto.getProductType() != null &&
-                !dto.getProductType().equals(product.getProductType().getName())) {
-            ProductType productType = getOrCreateProductType(dto.getProductType());
-            product.setProductType(productType);
-        }
-
-        // Cập nhật basic fields
-        product.setTitle(dto.getTitle());
-        product.setPrice(dto.getPrice());
-        product.setMaterial(dto.getMaterial());
-        product.setAcc(dto.getAcc());
-
-        // Clear và update tags
-        if (dto.getTags() != null) {
-            product.getTags().clear();
-            List<Tag> tags = getOrCreateTags(dto.getTags());
-            product.setTags(tags);
-        }
-
-        // Clear và update images
-        if (dto.getImages() != null) {
-            if (product.getEtsyImages() != null) {
-                product.getEtsyImages().clear();
-            }
-            List<EtsyImage> images = createImages(dto.getImages(), product);
-            product.setEtsyImages(images);
-        }
-
-        // Clear và update personalizations
-        if (dto.getPersonalization() != null) {
-            if (product.getPersonalizations() != null) {
-                product.getPersonalizations().clear();
-            }
-            List<EtsyProductPersonalization> personalizations =
-                    createPersonalizations(dto.getPersonalization(), product);
-            product.setPersonalizations(personalizations);
-        }
-
-        // Clear và update variations
-        if (dto.getVariation() != null) {
-            if (product.getVariations() != null) {
-                product.getVariations().clear();
-            }
-            List<EtsyVariation> variations = createVariations(dto.getVariation(), product);
-            product.setVariations(variations);
-        }
-
-        EtsyProduct savedProduct = productRepository.save(product);
-        log.info("Product updated successfully with ID: {}", savedProduct.getId());
-
-        return savedProduct;
-    }
-
-    /**
      * Lấy hoặc tạo mới ProductType
      * - Tránh trùng lặp bằng cách kiểm tra tên
      */
@@ -172,6 +112,40 @@ public class EtsyProductService {
                     return productTypeRepository.save(newType);
                 });
     }
+
+//    private List<String> getTagsFromDMM(Long id, String url, String shopName){
+//        List<String> tags = new ArrayList<>();
+//        try {
+//            // Encode URL param để tránh lỗi ký tự đặc biệt
+//            String encodedShopName = URLEncoder.encode(shopName, StandardCharsets.UTF_8);
+//            String encodedListingUrl = URLEncoder.encode(url, StandardCharsets.UTF_8);
+//
+//            String fullUrl = String.format(
+//                    "https://extension.dmmetsy.com/listing-embed/%d?shop_name=%s&url=%s",
+//                    id, encodedShopName, encodedListingUrl
+//            );
+//
+//            Document doc = Jsoup.connect(fullUrl)
+//                    .userAgent("Mozilla/5.0")
+//                    .timeout(10000)
+//                    .get();
+//
+//            // Lấy tất cả span có class label-default trong span#tags_field
+//            Elements tagElements = doc.select("span#tags_field span.label.label-default");
+//
+//            for (Element tagElement : tagElements) {
+//                String tagText = tagElement.text().trim();
+//                if (!tagText.isEmpty()) {
+//                    tags.add(tagText);
+//                }
+//            }
+//
+//        } catch (IOException e) {
+//            log.error(e.getMessage());
+//        }
+//        log.info("Tags found: {}", tags);
+//        return tags;
+//    }
 
     /**
      * Lấy hoặc tạo mới Tags
