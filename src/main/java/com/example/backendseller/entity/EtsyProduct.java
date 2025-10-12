@@ -1,5 +1,7 @@
 package com.example.backendseller.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -29,6 +31,7 @@ public class EtsyProduct {
     private String material;
 
     @Column(name = "description", length = 2000)
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
     private String description;
 
     @Enumerated(EnumType.STRING)
@@ -43,28 +46,38 @@ public class EtsyProduct {
     )
     private List<Tag> tags = new ArrayList<>();
 
-    @Column(name = "acc")
-    private Integer acc;
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "amazon_account_id", referencedColumnName = "id")
+    private AmazonAccount amazonAccount;
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "product_type_id", referencedColumnName = "id")
     private ProductType productType;
 
-    @OneToMany(mappedBy = "etsyProduct", cascade = CascadeType.ALL, fetch = FetchType.EAGER)
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "etsy_shop_id", referencedColumnName = "id")
+    private EtsyShop etsyShop;
+
+    @OneToMany(mappedBy = "etsyProduct", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     private List<EtsyImage> etsyImages;
 
-    @OneToMany(mappedBy = "etsyProduct", cascade = CascadeType.ALL, fetch = FetchType.EAGER)
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
+    @OneToMany(mappedBy = "etsyProduct", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     private List<EtsyProductPersonalization> personalizations;
 
-    @OneToMany(mappedBy = "etsyProduct", cascade = CascadeType.ALL, fetch = FetchType.EAGER)
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
+    @OneToMany(mappedBy = "etsyProduct", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     private List<EtsyVariation> variations;
 
+    @JsonIgnore
     @OneToOne(mappedBy = "etsyProduct", cascade = CascadeType.ALL, fetch = FetchType.EAGER)
     private AmazonProduct amazonProduct;
 
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
 
@@ -84,10 +97,5 @@ public class EtsyProduct {
         PROCESSING,
         COMPLETED,
         FAILED
-    }
-
-    @Override
-    public String toString() {
-        return "EtsyProduct{id=" + id + ", title='" + title + "', price=" + price + ", material='" + material + "', generateStatus=" + generateStatus + ", acc=" + acc + "}";
     }
 }

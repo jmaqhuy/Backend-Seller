@@ -584,13 +584,6 @@ public class OpenAiService {
                           "min_value": 1900,
                           "max_value": 2100,
                           "placeholder": 2025
-                        },
-                        {
-                          "type": "Number",
-                          "label": "Quantity",
-                          "instructions": "How many items do you need?",
-                          "min_value": 1,
-                          "max_value": 100
                         }
                       ]
                     },

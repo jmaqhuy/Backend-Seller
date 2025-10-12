@@ -1,0 +1,15 @@
+package com.example.backendseller.dto;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+@Builder
+public class EtsyImageDTO {
+    private String imageUrl;
+    private Integer displayOrder;
+}

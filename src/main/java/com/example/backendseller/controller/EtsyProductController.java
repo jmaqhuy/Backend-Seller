@@ -2,10 +2,16 @@ package com.example.backendseller.controller;
 
 import com.example.backendseller.dto.CustomResponse;
 import com.example.backendseller.dto.CreateEtsyProductRequest;
+import com.example.backendseller.dto.EtsyProductDTO;
 import com.example.backendseller.entity.EtsyProduct;
 import com.example.backendseller.service.EtsyProductService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -30,10 +36,11 @@ public class EtsyProductController {
             log.info("Creating product {}", dto);
             EtsyProduct savedProduct = productService.saveProduct(dto);
             return ResponseEntity.status(HttpStatus.CREATED).body(CustomResponse.<CreateEtsyProductRequest>builder()
-                            .data(CreateEtsyProductRequest.fromEntity(savedProduct))
+//                            .data(CreateEtsyProductRequest.fromEntity(savedProduct))
                             .message("Saved product successfully with id " + savedProduct.getId())
                     .build());
         } catch (Exception e) {
+            log.error("Error while saving product: {} with ID: {}", e.getMessage(), dto.getId());
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(
                     CustomResponse.builder()
                             .data(null)
@@ -79,9 +86,16 @@ public class EtsyProductController {
      * GET /api/products
      */
     @GetMapping
-    public ResponseEntity<List<EtsyProduct>> getAllProducts() {
-        List<EtsyProduct> products = productService.getAllProducts();
-        return ResponseEntity.ok(products);
+    public ResponseEntity<CustomResponse> getAllProducts(
+            @PageableDefault(page = 0, size = 10, sort = {"updatedAt"}, direction = Sort.Direction.DESC) Pageable pageable)
+    {
+        List<EtsyProduct> products = productService.getAllProducts(pageable);
+        return ResponseEntity.ok(
+                CustomResponse.builder()
+                        .data(new PageImpl<>(products, pageable, products.size()))
+                        .message("Get Etsy Product List Success")
+                        .build()
+        );
     }
 
     /**

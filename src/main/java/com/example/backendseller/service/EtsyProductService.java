@@ -1,15 +1,27 @@
 package com.example.backendseller.service;
 
 import com.example.backendseller.dto.CreateEtsyProductRequest;
+import com.example.backendseller.dto.EtsyProductDTO;
 import com.example.backendseller.dto.EtsyVariationDTO;
 import com.example.backendseller.entity.*;
 import com.example.backendseller.repository.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
+import org.jsoup.select.Elements;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.io.IOException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -20,7 +32,9 @@ public class EtsyProductService {
 
     private final EtsyProductRepository productRepository;
     private final TagRepository tagRepository;
-    private final ProductTypeRepository productTypeRepository;
+    private final ProductTypeService productTypeService;
+    private final AmazonAccountService amazonAccountService;
+    private final EtsyShopService etsyShopService;
 
     /**
      * Tạo hoặc cập nhật sản phẩm Etsy
@@ -30,8 +44,12 @@ public class EtsyProductService {
      * - Hỗ trợ manual ID từ Etsy API
      */
     @Transactional
+    @CacheEvict(
+            value = {"etsyProducts"},
+            allEntries = true
+    )
     public EtsyProduct saveProduct(CreateEtsyProductRequest dto) {
-        log.info("Saving product: {} with ID: {}", dto.getTitle(), dto.getId());
+        log.info("Received request to save product with dto: {}", dto);
 
         if (dto.getId() == null) {
             throw new IllegalArgumentException("Product ID cannot be null");
@@ -44,7 +62,8 @@ public class EtsyProductService {
         }
         try {
             // 1. Tạo hoặc lấy Product Type
-            ProductType productType = getOrCreateProductType(dto.getProductType());
+            String productTypeName = dto.getProductType();
+            ProductType productType = getProductType(productTypeName);
             log.info("Saving productType: {} with ID: {}", productType.getName(), productType.getId());
 
             // 2. Tạo product mới
@@ -56,14 +75,23 @@ public class EtsyProductService {
             product.setDescription(dto.getDescription());
             product.setPrice(dto.getPrice());
             product.setMaterial(dto.getMaterial());
-            product.setAcc(dto.getAcc());
             product.setProductType(productType);
             product.setGenerateStatus(EtsyProduct.GenerateStatus.PENDING);
 
+            product.setAmazonAccount(amazonAccountService.getAccountById(dto.getAcc()));
+
+            EtsyShop etsyShop = getOrCreateEtsyShop(dto.getShop());
+            product.setEtsyShop(etsyShop);
+
+
             // 3. Xử lý Tags (tối ưu với batch query)
-//            List<String> tagsFromDMM = getTagsFromDMM(dto.getId(), dto.getUrl(), dto.getShop().getName());
-//            List<Tag> tags = getOrCreateTags(tagsFromDMM);
-            List<Tag> tags = getOrCreateTags(dto.getTags());
+            List<Tag> tags;
+            if (dto.getTags() == null || dto.getTags().isEmpty()) {
+                List<String> tagsFromDMM = getTagsFromDMM(dto.getId(), dto.getUrl(), dto.getShop().getName());
+                tags = getOrCreateTags(tagsFromDMM);
+            } else {
+                tags = getOrCreateTags(dto.getTags());
+            }
             product.setTags(tags);
 
             // 4. Xử lý Images
@@ -92,60 +120,117 @@ public class EtsyProductService {
             return savedProduct;
         }  catch (Exception e) {
             log.error("Error while saving product: {} with ID: {}", e.getMessage(), dto.getId());
-            return null;
+            throw e;
         }
+    }
+
+    private EtsyShop getOrCreateEtsyShop(CreateEtsyProductRequest.Shop shopDto) {
+        if (shopDto == null || shopDto.getName() == null || shopDto.getName().trim().isEmpty()) {
+            throw new IllegalArgumentException("Shop information is required");
+        }
+
+        String shopName = shopDto.getName().trim();
+        log.info("Checking if shop exists: {}", shopName);
+
+        try {
+            // Tìm shop nếu đã tồn tại (có cache @Cacheable)
+            EtsyShop existingShop = etsyShopService.searchByName(shopName);
+            log.info("Shop already exists: {}", shopName);
+
+            if (existingShop.getAccept() == null || !existingShop.getAccept()) {
+                throw new IllegalArgumentException("Product from this shop is not acceptable");
+            }
+
+            return existingShop;
+        } catch (RuntimeException e) {
+            // Shop không tồn tại, cần tạo mới
+            log.info("Shop not found, creating new shop: {} - Reason: {}", shopName, e.getMessage());
+
+            try {
+                // Gọi hàm create của service - nó sẽ xử lý Transactional riêng
+                EtsyShop newShop = etsyShopService.create(
+                        shopName,
+                        shopDto.getUrl() != null ? shopDto.getUrl().trim() : "",
+                        shopDto.getAvatarUrl() != null ? shopDto.getAvatarUrl().trim() : "",
+                        Boolean.TRUE
+                );
+                log.info("New shop created successfully: {}", shopName);
+                return newShop;
+            } catch (RuntimeException createException) {
+                log.warn("Failed to create new shop: {} - Error: {}", shopName, createException.getMessage());
+
+                // Nếu shop đã tồn tại (tạo bởi request khác), thử lấy lại
+                Optional<EtsyShop> existingShopOpt = etsyShopService.findByName(shopName);
+                if (existingShopOpt.isPresent()) {
+                    log.info("Shop found in retry: {}", shopName);
+                    EtsyShop shop = existingShopOpt.get();
+                    if (shop.getAccept() == null || !shop.getAccept()) {
+                        throw new IllegalArgumentException("Product from this shop is not acceptable");
+                    }
+                    return shop;
+                }
+
+                // Nếu vẫn không tìm thấy, throw exception
+                log.error("Failed to get or create shop: {}", shopName, createException);
+                throw new RuntimeException("Failed to get or create shop: " + shopName, createException);
+            }
+        }
+    }
+    /**
+     * Lấy tất cả sản phẩm với phân trang
+     */
+    @Cacheable(
+            value = "etsyProducts",
+            key = "'all_' + #pageable.pageNumber + '_' + #pageable.pageSize + '_' + #pageable.sort",
+            unless = "#result.isEmpty()"
+    )
+    public List<EtsyProduct> getAllProducts(Pageable pageable) {
+        log.info("Fetching all products with pageable: page={}, size={}",
+                pageable.getPageNumber(), pageable.getPageSize());
+        return productRepository.findAll(pageable).getContent();
     }
 
     /**
      * Lấy hoặc tạo mới ProductType
      * - Tránh trùng lặp bằng cách kiểm tra tên
      */
-    private ProductType getOrCreateProductType(String typeName) {
-        if (!StringUtils.hasText(typeName)) {
-            throw new IllegalArgumentException("Product type name cannot be empty");
-        }
-
-        return productTypeRepository.findByName(typeName)
-                .orElseGet(() -> {
-                    ProductType newType = new ProductType();
-                    newType.setName(typeName);
-                    return productTypeRepository.save(newType);
-                });
+    private ProductType getProductType(String typeName) {
+        return productTypeService.getProductTypeByName(typeName);
     }
 
-//    private List<String> getTagsFromDMM(Long id, String url, String shopName){
-//        List<String> tags = new ArrayList<>();
-//        try {
-//            // Encode URL param để tránh lỗi ký tự đặc biệt
-//            String encodedShopName = URLEncoder.encode(shopName, StandardCharsets.UTF_8);
-//            String encodedListingUrl = URLEncoder.encode(url, StandardCharsets.UTF_8);
-//
-//            String fullUrl = String.format(
-//                    "https://extension.dmmetsy.com/listing-embed/%d?shop_name=%s&url=%s",
-//                    id, encodedShopName, encodedListingUrl
-//            );
-//
-//            Document doc = Jsoup.connect(fullUrl)
-//                    .userAgent("Mozilla/5.0")
-//                    .timeout(10000)
-//                    .get();
-//
-//            // Lấy tất cả span có class label-default trong span#tags_field
-//            Elements tagElements = doc.select("span#tags_field span.label.label-default");
-//
-//            for (Element tagElement : tagElements) {
-//                String tagText = tagElement.text().trim();
-//                if (!tagText.isEmpty()) {
-//                    tags.add(tagText);
-//                }
-//            }
-//
-//        } catch (IOException e) {
-//            log.error(e.getMessage());
-//        }
-//        log.info("Tags found: {}", tags);
-//        return tags;
-//    }
+    private List<String> getTagsFromDMM(Long id, String url, String shopName){
+        List<String> tags = new ArrayList<>();
+        try {
+            // Encode URL param để tránh lỗi ký tự đặc biệt
+            String encodedShopName = URLEncoder.encode(shopName, StandardCharsets.UTF_8);
+            String encodedListingUrl = URLEncoder.encode(url, StandardCharsets.UTF_8);
+
+            String fullUrl = String.format(
+                    "https://extension.dmmetsy.com/listing-embed/%d?shop_name=%s&url=%s",
+                    id, encodedShopName, encodedListingUrl
+            );
+
+            Document doc = Jsoup.connect(fullUrl)
+                    .userAgent("Mozilla/5.0")
+                    .timeout(10000)
+                    .get();
+
+            // Lấy tất cả span có class label-default trong span#tags_field
+            Elements tagElements = doc.select("span#tags_field span.label.label-default");
+
+            for (Element tagElement : tagElements) {
+                String tagText = tagElement.text().trim();
+                if (!tagText.isEmpty()) {
+                    tags.add(tagText);
+                }
+            }
+
+        } catch (IOException e) {
+            log.error(e.getMessage());
+        }
+        log.info("Tags found: {}", tags);
+        return tags;
+    }
 
     /**
      * Lấy hoặc tạo mới Tags

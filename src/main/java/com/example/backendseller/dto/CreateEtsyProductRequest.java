@@ -3,10 +3,7 @@ package com.example.backendseller.dto;
 import com.example.backendseller.entity.EtsyProduct;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import lombok.*;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.List;
@@ -37,15 +34,14 @@ public class CreateEtsyProductRequest {
                 .title(etsyProduct.getTitle())
                 .price(etsyProduct.getPrice())
                 .material(etsyProduct.getMaterial())
-                .productType(etsyProduct.getProductType().getName())
-                .acc(etsyProduct.getAcc())
+                .acc(etsyProduct.getAmazonAccount().getId())
                 .build();
     }
     @Data
     public static class Shop {
         private String name;
         private String url;
-        private String image;
+        private String avatarUrl;
     }
 
     @Override

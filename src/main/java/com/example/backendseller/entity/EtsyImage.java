@@ -1,5 +1,6 @@
 package com.example.backendseller.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -16,6 +17,7 @@ public class EtsyImage {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @JsonIgnore
     @Column(name = "etsy_product_id", insertable = false, updatable = false)
     private Long etsyProductId;
 
@@ -25,6 +27,7 @@ public class EtsyImage {
     @Column(name = "display_order")
     private Integer displayOrder;
 
+    @JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "etsy_product_id", referencedColumnName = "id")
     private EtsyProduct etsyProduct;
